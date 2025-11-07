@@ -1,0 +1,15 @@
+retriever:
+  file: "retriever/report.pdf"
+  headers_to_split_on:
+    - ["#", "Header 1"]
+    - ["##", "Header 2"]
+  load_documents: False
+  collection_name: rag-chroma-report
+  directory: vector_db
+  top_k: 3
+  top_k_compression: 3
+  ensemble_weights: [0.3, 0.3, 0.4] 
+  cohere_rerank_model: rerank-english-v3.0
+llm:
+  gpt-5-mini: gpt-5-mini
+  temperature: 0
