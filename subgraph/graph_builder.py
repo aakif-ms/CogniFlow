@@ -51,3 +51,74 @@ def _load_documents(vectorstore: Chroma) -> list[Document]:
         
         documents.append(Document(page_content=content, metadata=meta))
     return documents
+
+def _build_retrievers(documents: list[Document], vectorstore: Chroma) -> ContextualCompressionRetriever:
+    
+    retriever_bm25 = BM25Retriever.from_documents(documents, search_kwargs={"k": TOP_K})
+    retriever_vanilla = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": TOP_K})
+    retriever_mmr = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": TOP_K})
+
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[retriever_vanilla, retriever_mmr, retriever_bm25],
+        weights=ENSEMBLE_WEIGHTS,
+    )
+    
+    compressor = CohereRerank(top_n=TOP_K_COMPRESSION, model=COHERE_RERANK_MODEL)
+
+    compression_retriever = ContextualCompressionRetriever(
+        base_compressor=compressor,
+        base_retriever=ensemble_retriever,
+    )
+    
+    return compression_retriever
+
+vectorstore = _setup_vectorstore()
+documents = _load_documents(vectorstore)
+
+compression_retriever = _build_retrievers(documents, vectorstore)
+
+async def generate_queries(
+    state: ResearcherState, *, config: RunnableConfig
+) -> dict[str, list[str]]:
+    
+    class Response(TypedDict):
+        queries: list[str]
+    
+    logger.info("---Generate Queries---")
+    model = ChatOpenAI(model="gpt-5-mini", temperature=0)
+    messages = [
+        {"role": "system", "content": GENERATE_QUERIES_SYSTEM_PROMPT},
+        {"role": "human", "content": state.question},
+    ]
+    response = cast(Response, await model.with_structured_output(Response).invoke(messages))
+    queries = response["queries"]
+    queries.append(state.question)
+    logger.info(f"Queries: {queries}")
+    return {"queries": response["queries"]}
+
+async def retrieve_and_rerank_documents(
+    state: QueryState, *, config: RunnableConfig
+) -> dict[str, list[Document]]:
+    
+    logger.info("---Retrieving documents---")
+    logger.info(f"Query for the retrieval process: {state.query}")
+
+    response = compression_retriever.invoke(state.query)
+    return {"documents": response}
+
+def retrieve_in_parallel(state: ResearcherState) -> list[Send]:
+    return [
+        Send("retrieve_and_rerank_documents", QueryState(query=query)) for query in state.queries
+    ]
+    
+builder = StateGraph(ResearcherState)
+builder.add_node(generate_queries)
+builder.add_node(retrieve_and_rerank_documents)
+builder.add_edge(START, "generate_queries")
+builder.add_conditional_edges(
+    "generate_queries",
+    retrieve_in_parallel, 
+    path_map=["retrieve_and_rerank_documents"],
+)
+builder.add_edge("retrieve_and_rerank_documents", END)
+researcher_graph = builder.compile()
