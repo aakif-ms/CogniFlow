@@ -9,3 +9,7 @@ chromadb
 langchain_cohere
 docling
 huggingface_hub[hf_xet]
+streamlit
+langgraph
+pyyaml
+python-dotenv

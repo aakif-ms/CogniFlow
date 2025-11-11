@@ -1,5 +1,5 @@
 retriever:
-  file: "retriever/report.pdf"
+  file: "retreiver/report.pdf"
   headers_to_split_on:
     - ["#", "Header 1"]
     - ["##", "Header 2"]
@@ -12,5 +12,5 @@ retriever:
   cohere_rerank_model: rerank-english-v3.0
 
 llm:
-  gpt_5_mini: gpt-5-mini
+  gpt_5_mini: gpt-4o-mini
   temperature: 0
