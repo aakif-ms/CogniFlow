@@ -110,31 +110,28 @@ if prompt := st.chat_input("Ask a question...", disabled=st.session_state.proces
         # Show thinking indicator
         with st.spinner("Thinking..."):
             try:
-                # Create thread config
                 thread = {"configurable": {"thread_id": st.session_state.thread_id}}
                 
-                # Create input state
-                input_state = InputState(messages=[HumanMessage(content=prompt)])
+                # Pass the full conversation history to the graph
+                input_state = InputState(messages=st.session_state.messages)
                 
-                # Run the graph
                 async def run_graph():
-                    response_text = ""
-                    async for chunk, metadata in graph.astream(
-                        input=input_state, 
-                        stream_mode="messages", 
-                        config=thread
-                    ):
-                        if hasattr(chunk, 'content') and chunk.content:
-                            response_text += chunk.content
-                    return response_text
+                    # Get final result instead of streaming chunks
+                    result = await graph.ainvoke(input=input_state, config=thread)
+                    
+                    # Extract only the AI messages (not system/internal messages)
+                    if result.get("messages"):
+                        # Get the last AI message
+                        for msg in reversed(result["messages"]):
+                            if isinstance(msg, AIMessage):
+                                return msg.content
+                    return None
                 
-                # Execute async function
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 response = loop.run_until_complete(run_graph())
                 loop.close()
                 
-                # Display the response
                 if response:
                     full_response = response
                 else:
@@ -142,7 +139,6 @@ if prompt := st.chat_input("Ask a question...", disabled=st.session_state.proces
                 
                 message_placeholder.markdown(full_response)
                 
-                # Check for interrupts (hallucination check)
                 state = graph.get_state(thread)
                 if state and len(state) > 0 and hasattr(state[-1], 'interrupts') and len(state[-1].interrupts) > 0:
                     st.warning("⚠️ The response may contain uncertain information.")
